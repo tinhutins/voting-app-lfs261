@@ -1,0 +1,5 @@
+jenkins-test ansible_host=192.168.43.147 ansible_user=tino
+
+[jenkins_master]
+jenkins-test
+

@@ -1,0 +1,68 @@
+pipeline {
+    agent none
+    // this tool match nodejs version in global configuration 
+    // tools{
+    //     nodejs 'NodeJS 19.0.1'
+    // }
+
+    stages{
+        stage("build"){
+            // Run the jobs in this pipeline only if the code in the result subdirectory is updated.
+           when{
+                changeset "**/result/**"
+            }
+            agent{
+                docker{
+                image 'node:16.13.1-alpine'
+                }
+            } 
+            steps{
+                echo 'Compiling result app'
+                dir('result'){
+                    sh 'npm install'
+                }
+            }
+        }
+        stage("test"){
+            // Run the jobs in this pipeline only if the code in the worker subdirectory is updated.
+            when{
+                changeset "**/result/**"
+            }
+             agent{
+                docker{
+                image 'node:16.13.1-alpine'
+                }
+            } 
+            steps{
+                echo 'Running unit tests on nodejs app'
+                dir('result'){
+                    sh 'npm install'
+                    sh 'npm test'
+                }
+            }
+        }
+        stage('result-package-docker') {
+             when{
+                branch 'master'
+                changeset "**/result/**"
+            }
+             agent any
+                steps {
+                    echo 'Packaging result app with docker'
+                    script {
+                    //withDockerRegistry(credentialsId: 'dockerlogin', url: 'https://registry-1.docker.io/v2/'){
+                    docker.withRegistry('https://registry-1.docker.io/v2/', 'dockerlogin'){
+                    def resultImage = docker.build("hutinskit/result:v${env.BUILD_ID}", "./result")
+                    resultImage.push()
+                    resultImage.push("${env.BRANCH_NAME}")
+                   }
+                   }
+                }  
+            }
+    }
+    post {
+        always {
+            echo 'Pipeline for result is completed.'
+        }
+    }
+}
