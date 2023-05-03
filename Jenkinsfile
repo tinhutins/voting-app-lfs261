@@ -13,13 +13,19 @@ pipeline {
   // here it is necessary to change tags after every app update
   environment {
 
-        TAG_VOTE   = '1.0.135' // MAJOR.MINOR.PATCH
-        TAG_RESULT = '1.0.135' // MAJOR.MINOR.PATCH
-        TAG_WORKER = '1.0.135' // MAJOR.MINOR.PATCH
+        TAG_VOTE   = '1.0.136' // MAJOR.MINOR.PATCH
+        TAG_RESULT = '1.0.136' // MAJOR.MINOR.PATCH
+        TAG_WORKER = '1.0.136' // MAJOR.MINOR.PATCH
 
     }
 
   stages {
+
+    stage('checkout'){
+            steps{
+                git branch: 'master', url: 'https://github.com/tinhutins/voting-app-lfs261.git'
+            }
+        }
     
     stage('worker-build') {
       agent{
