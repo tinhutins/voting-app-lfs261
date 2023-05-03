@@ -1,0 +1,10 @@
+plugin: gcp_compute
+projects:
+  - test-ci-cd-379808
+auth_kind: serviceaccount
+service_account_file: /home/tino_hutinski/ci_cd_learn/voting-app-lfs261/voting-app-lfs261/ansible/roles/gcp_argo/files/credentials.json
+zone: "europe-central2-a"
+region: "europe-central2"
+groups:
+  #development: "'env' in (labels|list)"
+  nodes: "'gke-n' in name"

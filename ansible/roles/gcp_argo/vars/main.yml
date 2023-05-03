@@ -1,0 +1,10 @@
+# Enter argocd branch
+k8s_argocd_branch: "master"
+# Enter argocd repo
+argocd_config_repo: "https://github.com/tinhutins/argocd-vote-deploy.git"
+
+
+# gcloud_sa_path: "~/ci_cd_learn/example-voting-app-lfs261/example-voting-app-lfs261/ansible/roles/gcp_argo/files/credentials.json"
+# credentials_file: "{{ lookup('env','HOME') }}/{{ gcloud_sa_path }}"
+
+cloud_sdk_repo: "deb https://packages.cloud.google.com/apt cloud-sdk main"

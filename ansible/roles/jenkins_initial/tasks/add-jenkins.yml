@@ -1,0 +1,354 @@
+---
+- name: Ensure a list of packages installed debian
+  apt:
+    state: present
+    name: "{{ packages }}"
+  when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+#install docker and docker-compose on machine
+- name: Add an apt docker signing key
+  ansible.builtin.apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+    keyring: /usr/share/keyrings/docker-archive-keyring.gpg
+  when: ansible_os_family == "Debian"
+
+- name: Register debian destribution
+  shell: lsb_release -cs
+  register: lsb_release
+  when: ansible_os_family == "Debian"
+
+- name: Register debian arhitecture
+  shell: dpkg --print-architecture
+  register: arch
+  when: ansible_os_family == "Debian"
+
+- name: Remove cdrom from sources
+  lineinfile:
+    path: /etc/apt/sources.list
+    # String to Search
+    regexp: "deb" 
+    # State is set to Absent to remove if the Searching Line is found
+    state: absent
+    backup: yes
+
+- name: Add specified repository into sources list
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ arch.stdout }} signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ lsb_release.stdout }} stable"
+    state: present
+    filename: docker
+  when: ansible_os_family == "Debian"
+
+# Docker
+- name: Remove docker packages if already installed
+  apt:
+    name: "docker*"
+    state: absent
+
+- name: Remove docker files if they exist
+  file:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - '/var/lib/docker'
+    - '/var/run/docker.sock'
+    - '/usr/bin/docker-compose'
+
+- name: Reboot host
+  reboot:
+    connect_timeout: "{{ reboot_connect_timeout }}"
+    post_reboot_delay: "{{ reboot_post_reboot_delay }}"
+    reboot_timeout: "{{ reboot_timeout }}"
+
+- name: Create docker configuration directory
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0700'
+
+- name: Add repository universe into sources list needed for python
+  ansible.builtin.apt_repository:
+    repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} main universe"
+    state: present
+
+- name: Update repositories cache
+  apt:
+    update_cache: yes
+
+- name: Update repositories cache and install python package
+  apt:
+    name: python3-pip
+    state: present
+    install_recommends: no
+    update_cache: yes
+
+- name: Install and upgrade additional packages
+  pip:
+    name:
+      - docker==6.0.1
+      - pyyaml==5.4.1
+      - docker-compose==1.29.2
+    executable: pip3
+
+- name: Install docker-compose
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/{{ jenkins_docker_compose_version }}/docker-compose-linux-x86_64"
+    dest: /usr/bin/docker-compose
+    mode: '0744'
+  when: ansible_os_family == "Debian"
+
+- name: Install docker
+  apt:
+    name: "{{ jenkins_docker_ce_version }}"
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Start and enable service docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Get running containers
+  docker_host_info:
+    containers: yes
+  register: docker_info
+
+- name: Destroy stopped containers
+  docker_container:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ docker_info.containers | map(attribute='Id') | list }}"
+
+# Git
+- name: Install git
+  apt:
+    name: git
+    state: present
+    update_cache: yes
+
+# Kustomize
+- name: Remove kustomize if it already exists
+  file:
+    path: /usr/bin/kustomize
+    state: absent
+
+- name: Download kustomize
+  get_url:
+    url: "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
+    dest: /tmp/kustomize.sh
+    mode: '0744'
+
+- name: Apply kustomize
+  shell: /tmp/kustomize.sh
+  args:
+    chdir: /usr/bin
+
+- name: Remove kustomize script after install
+  file:
+    path: /tmp/kustomize.sh
+    state: absent
+
+- name: Install argocd to localhost for later creating apps into argo
+  shell: |
+    curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+    sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+    rm argocd-linux-amd64
+
+# Jenkins running in docker with docker-compose
+- name: Create jenkins directory if it does not exist
+  ansible.builtin.file:
+    path: ~/jenkins
+    state: directory
+    mode: '0755'
+
+- name: Copy jenkins config files
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "~/jenkins/{{ item }}.yml"
+    owner: root
+    group: root
+    mode: u=rw,g=rw,o=r
+  loop:
+    - docker-compose
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: Dockerfile
+    dest: ~/jenkins/
+
+- name: Delete existing jenkins service if exist
+  community.docker.docker_compose:
+    project_src: ~/jenkins
+    state: absent
+
+- name: Create and start jenkins service
+  community.docker.docker_compose:
+    project_src: ~/jenkins
+  register: output
+
+- ansible.builtin.debug:
+    var: output
+
+- name: Pause for 2 minutes to get containers fully up and running
+  ansible.builtin.pause:
+    minutes: 2
+
+#set initial jenkins configuration admin user/password/token/url
+- name: Jenkins get initial admin password
+  community.docker.docker_container_exec:
+    container: jenkins
+    command: /bin/sh -c "cat /var/jenkins_home/secrets/initialAdminPassword"
+    chdir: /root
+  register: admin_auth_token
+
+- name: Unlock jenkins and add admin user
+  jenkins_script:
+    script: |
+      import jenkins.model.*
+      import hudson.security.*
+      def instance = Jenkins.getInstance()
+      def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+      hudsonRealm.createAccount('${user_acc}', '${user_pwd}')
+      instance.setSecurityRealm(hudsonRealm)
+      def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+      strategy.setAllowAnonymousRead(false)
+      instance.setAuthorizationStrategy(strategy)
+      instance.save()
+    
+    validate_certs: no
+    args:
+      user_acc: "{{ jenkins_user }}"
+      user_pwd: "{{ jenkins_password }}"
+    user: admin
+    password: "{{ admin_auth_token.stdout }}"
+
+- name: Complete jenkins setup wizard
+  jenkins_script:
+    script: |
+      import static jenkins.model.Jenkins.instance as jenkins
+      import jenkins.install.InstallState
+      if (!jenkins.installState.isSetupComplete()) {
+        InstallState.INITIAL_SETUP_COMPLETED.initializeState()
+      }
+    
+    validate_certs: no
+    user: "{{ jenkins_user }}"
+    password: "{{ jenkins_password }}"
+
+- name: Jenkins install docker inside jenkins container
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: /bin/sh -c "curl https://get.docker.com/ > dockerinstall && chmod 777 dockerinstall && ./dockerinstall"
+
+- name: Add security
+  shell: sudo chmod 666 /var/run/docker.sock
+
+- name: Jenkins install docker-compose inside jenkins container
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: /bin/sh -c "curl -SL https://github.com/docker/compose/releases/download/v2.16.0/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose"
+
+- name: Jenkins add ssh keys
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: jenkins
+    command: /bin/sh -c "ssh-keygen -f ~/.ssh/id_rsa"
+
+- name: Read SSH public key to authorize
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: jenkins
+    command: cat /var/jenkins_home/.ssh/id_rsa.pub
+  register: ssh_pub_key_jenkins
+
+- name: Authorize jenkins key with GitHub
+  local_action:
+    module: github_key
+    name: Access Key for Jenkins user in container
+    token: '{{ github_access_token }}'
+    pubkey: '{{ ssh_pub_key_jenkins.stdout }}'
+
+- name: Jenkins add ssh keys for root user
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: /bin/sh -c "ssh-keygen -f ~/.ssh/id_rsa"
+
+- name: Read SSH public key to authorize for root user
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: cat /root/.ssh/id_rsa.pub
+  register: ssh_pub_key_root
+
+- name: Authorize root key with GitHub
+  local_action:
+    module: github_key
+    name: Access Key for root user in container
+    token: '{{ github_access_token }}'
+    pubkey: '{{ ssh_pub_key_root.stdout }}'
+
+- name: Jenkins install kustomize
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: /bin/sh -c "{{ item }}"
+  with_items:
+    - docker-compose -v
+    - curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
+    - install -o root -g root -m 0755 kustomize /usr/local/bin/kustomize
+
+- name: Jenkins add github key to known_host for jenkins user
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: jenkins
+    command: /bin/sh -c "{{ item }}"
+  with_items:
+    - ssh-keyscan -t rsa github.com >> /var/jenkins_home/.ssh/known_hosts
+
+- name: Jenkins add github key to known_host for root user
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: /bin/sh -c "{{ item }}"
+  with_items:
+    - ssh-keyscan -t rsa github.com >> /root/.ssh/known_hosts
+
+- name: Dind container install kustomize
+  community.docker.docker_container_exec:
+    container: docker-dind
+    user: root
+    command: /bin/sh -c "{{ item }}"
+  with_items:
+    - apk add curl
+    - curl --silent --location --remote-name "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v3.2.3/kustomize_kustomize.v3.2.3_linux_amd64"
+    - chmod a+x kustomize_kustomize.v3.2.3_linux_amd64 && mv kustomize_kustomize.v3.2.3_linux_amd64 /usr/local/bin/kustomize
+
+# Jenkins get cli
+- name: Get jenkins cli from jenkins, optional if needed 
+  community.docker.docker_container_exec:
+    container: jenkins
+    user: root
+    command: /bin/bash -c "curl  http://localhost:8080/jenkins//jnlpJars/jenkins-cli.jar --output /root/jenkins-cli.jar"
+    chdir: /root
+  register: result
+
+- name: Restart  all services at the end of task
+  community.docker.docker_compose:
+    project_src: ~/jenkins
+    build: no
+    services:
+      - jenkins
+      - docker
+    restarted: yes
+
+- name: Install and configure ngrok
+  shell: |
+    sudo snap install ngrok
+    ngrok config add-authtoken {{ ngrok_token }}
+    
+#at the end add ngrok URL from command : ngrok http 8080 --host-header=localhost to github repo example-voting-app for webhooks manually

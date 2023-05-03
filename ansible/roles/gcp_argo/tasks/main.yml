@@ -1,0 +1,6 @@
+---
+- name: Add argo in k8s
+  import_tasks: add-argo.yml
+  tags: add_argo
+
+

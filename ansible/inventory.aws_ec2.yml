@@ -1,0 +1,13 @@
+plugin: amazon.aws.aws_ec2
+aws_access_key: <YOUR-AWS-ACCESS-KEY-HERE>
+aws_secret_key: <YOUR-AWS-SECRET-KEY-HERE>
+keyed_groups:
+  - key: tags
+    prefix: tag
+# This sets the region. If empty (the default) default this will include all regions, except possibly
+# restricted ones like us-gov-west-1 and cn-north-1.
+regions:
+  - eu-central-1
+
+# ignores 403 errors rather than failing
+strict_permissions: False

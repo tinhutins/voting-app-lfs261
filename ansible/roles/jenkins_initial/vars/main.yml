@@ -1,0 +1,11 @@
+---
+packages:
+  - rsync
+
+reboot_connect_timeout: 5
+reboot_post_reboot_delay: 15
+reboot_timeout: 600
+
+# Place to change Docker version
+jenkins_docker_ce_version: "docker-ce=5:23.0.0-1~ubuntu.22.04~{{ ansible_distribution_release }}"
+jenkins_docker_compose_version: "v2.15.1"

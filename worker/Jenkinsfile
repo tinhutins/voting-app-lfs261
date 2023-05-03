@@ -1,0 +1,106 @@
+//Now update the Jenkinsfile for the worker app:
+//Remove the tools section
+//Change the agent configuration from any to docker
+//Provide the Docker agent configurations with
+//image: maven:3.6.1-jdk-8-slim
+// args: ‘-v $HOME/.m2:/root/.m2’
+
+pipeline {
+    //this is required for docker login to registry to function properly
+    agent none
+    stages{
+        stage("build"){
+            // Run the jobs in this pipeline only if the code in the worker subdirectory is updated.
+            when{
+                changeset "**/worker/**"
+            }
+            agent{
+                docker{
+                image 'maven:3.6.1-jdk-8-slim'
+                args '-v $HOME/.m2:/root/.m2'
+                }
+            } 
+            steps{
+                echo 'Compiling worker app'
+                dir('worker'){
+                    sh 'mvn compile'
+                }
+            }
+        }
+        stage("test"){
+            // Run the jobs in this pipeline only if the code in the worker subdirectory is updated.
+            when{
+                changeset "**/worker/**"
+            }
+             agent{
+                docker{
+                image 'maven:3.6.1-jdk-8-slim'
+                args '-v $HOME/.m2:/root/.m2'
+                }
+            } 
+            steps{
+                echo 'Running Unit Tests on worker app'
+                dir('worker'){
+                    sh 'mvn clean test'
+                }
+            }
+        }
+        stage("package"){
+            // Run the jobs in this pipeline only if the code in the worker subdirectory is updated and branch is master.
+            when{
+                branch 'master'
+                changeset "**/worker/**"
+            }
+             agent{
+                docker{
+                image 'maven:3.6.1-jdk-8-slim'
+                args '-v $HOME/.m2:/root/.m2'
+                }
+
+            } 
+            steps{
+                echo 'Packaging worker app'
+                dir('worker'){
+                    sh 'mvn package -DskipTests'
+                }
+            }
+        }
+        //To have Jenkins build and publish a Docker image, you must add a pipeline script block, agent must be any, and on pipeline level none
+        //in docker.build("hutinskit/worker:v.... first argument is DockerHUB ID for me hutinskit
+          stage('worker-package-docker') {
+            when{
+                branch 'master'
+                changeset "**/worker/**"
+                }
+             
+            agent any
+                
+                steps {
+                    echo 'Packaging worker app with docker'
+                    script {
+                    //withDockerRegistry(credentialsId: 'dockerlogin', url: 'https://registry-1.docker.io/v2/'){
+                    docker.withRegistry('https://registry-1.docker.io/v2/', 'dockerlogin'){
+                    def workerImage = docker.build("hutinskit/worker:v${env.BUILD_ID}", "./worker")
+                    workerImage.push()
+                    workerImage.push("${env.BRANCH_NAME}")
+                   }
+                   }
+                }  
+            }
+    }
+post{
+    always{
+        // After running the package, it will create a jar/war file. You need to archive that artifact.
+        archiveArtifacts artifacts: '**/target/*.jar', fingerprint:
+    true
+    echo 'Building multibranch pipeline for worker is completed..'
+    }
+}
+}
+
+// You have set up a multibranch pipeline so that the CI pipelines are run automatically for every
+//branch that you create in future. This is extremely useful to get the feedback from the CI system,
+//even before you merge the code into the trunk. This helps ensure that the master branch is
+//never broken.
+
+

@@ -1,0 +1,18 @@
+---
+# tasks file for initial jenkins install
+- hosts: jenkins_master
+  become: yes
+  gather_facts: true
+  roles:
+    - { role: roles/jenkins_initial }
+
+- hosts: nodes
+  become: yes
+  user: tinoblue17
+  gather_facts: true
+  # environment:
+    #K8S_AUTH_KUBECONFIG: "/home/tino_hutinski/ci_cd_learn/example-voting-app-lfs261/example-voting-app-lfs261/ansible/roles/gcp_argo/files/kubeconfig"
+    #GOOGLE_CREDENTIALS: "{{ gce_json_contents }}"
+    #GOOGLE_CREDENTIALS: "{{ credentials_file }}"
+  roles:
+    - { role: roles/gcp_argo }

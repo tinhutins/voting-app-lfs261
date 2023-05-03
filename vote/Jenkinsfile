@@ -1,0 +1,69 @@
+pipeline {
+    agent none
+
+    stages {
+        stage('build') {
+            when {
+              changeset "**/vote/**"
+	        }
+            agent {
+                docker {
+                    image 'python:2.7.16-slim'
+                    args '--user root'
+                }
+            }   
+            steps {
+                echo 'compilling vote app!!'
+		        dir ('vote'){
+                    sh 'pip install -r requirements.txt '
+		        }
+            }
+        }
+        stage('test') {
+            when {
+              changeset "**/vote/**"
+	         }
+            agent {
+                docker {
+                    image 'python:2.7.16-slim'
+                    args '--user root'
+                }
+            } 
+            steps {
+                echo 'Running unit tests on vote app'
+                dir ('vote'){
+                    sh 'pip install -r requirements.txt '
+                    sh 'nosetests -v'
+                }
+	        }
+        }
+
+        stage('vote-package-docker') {
+             when {
+              branch 'master'
+              changeset "**/vote/**"
+             }
+            
+             agent any
+            
+            steps {
+                echo 'Packaging vote app with docker '
+                script {
+                    docker.withRegistry('https://registry-1.docker.io/v2/', 'dockerlogin'){
+                    def voteImage = docker.build("hutinskit/vote:v${env.BUILD_ID}", "./vote")
+                    voteImage.push()
+                    voteImage.push("${env.BRANCH_NAME}")
+                    }
+                }
+
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline for vote is completed.'
+        }
+    }
+
+}

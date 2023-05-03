@@ -1,0 +1,208 @@
+---
+- name: Install Cloud SDK from APT
+  become: true
+  block:
+
+    - name: Update ca-certificates
+      apt:
+        name: ca-certificates
+
+    - name: Install apt-transport-https
+      apt:
+        name: apt-transport-https
+
+    - name: Import the Google Cloud Platform public key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+    - name: Add the Cloud SDK distribution URI as a package source
+      apt_repository:
+        repo: '{{ cloud_sdk_repo }}'
+
+    - name: Install the Cloud SDK
+      apt:
+        name: google-cloud-sdk
+        update_cache: true
+
+- name: Install Gcloud auth plugin
+  apt:
+    update_cache: yes
+    name: google-cloud-sdk-gke-gcloud-auth-plugin
+    state: latest
+
+# - name: Gcloud install auth plugin
+#   shell: |
+#     sudo apt-get install google-cloud-sdk-gke-gcloud-auth-plugin
+
+- name: Update repositories cache and install python package
+  apt:
+    update_cache: yes
+    name: python3-pip
+    state: latest
+
+- name: Install and upgrade pip, install packages for python
+  pip:
+    name:
+      - docker==6.0.1
+      - pyyaml==5.4.1
+      - docker-compose==1.29.2
+      - kubernetes==26.1.0
+    executable: pip3
+
+- name: Create kubeconfig dir
+  file:
+    path: $HOME/.kube/
+    state: directory
+    mode: '0755'
+
+- name: Copy kubeconfig
+  ansible.builtin.copy:
+    src: kubeconfig
+    dest: $HOME/.kube/config
+
+- name: Create kubeconfig dir for specific google cloud user, it follows gmail acc
+  file:
+    path: /home/tinoblue17/.kube/
+    state: directory
+    mode: '0755'
+
+- name: Copy kubeconfig for specific google cloud user, it follows gmail acc
+  ansible.builtin.copy:
+    src: kubeconfig
+    dest: /home/tinoblue17/.kube/config
+
+- name: Create argocd namespace
+  kubernetes.core.k8s:
+    name: argocd
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "/home/tinoblue17/.kube/config"
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Install argocd cli
+  get_url:
+    url: https://github.com/argoproj/argo-cd/releases/download/v2.5.12/argocd-linux-amd64
+    dest: /usr/local/bin/argocd
+    mode: '0755'
+
+- name: Download argocd manifest to the cluster
+  get_url:
+    url: https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+    dest: ~/argocd.yaml
+    mode: '0664'
+
+- name: Apply argocd manifest to the cluster
+  kubernetes.core.k8s:
+    state: present
+    namespace: argocd
+    kubeconfig: "/home/tinoblue17/.kube/config"
+    src: ~/argocd.yaml
+
+- name: Remove argocd manifest file
+  file:
+    path: ~/argocd.yaml
+    state: absent
+
+- name: Wait for argocd-server deployment "True" on MinimumReplicasAvailable
+  kubernetes.core.k8s:
+    kubeconfig: "/home/tinoblue17/.kube/config"
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-server
+        namespace: argocd
+      spec:
+        paused: True
+    wait: yes
+    wait_condition:
+      type: Available
+      status: "True"
+      reason: MinimumReplicasAvailable
+    wait_timeout: 240
+
+- name: Expose argo to outside 
+  shell: kubectl -n argocd expose deploy argocd-server --type=NodePort --port=8080 --name=argocd-server-external-access
+  when: inventory_hostname in groups['nodes'][0]
+
+#for below command for exposing we get error : The error was: AttributeError: 'K8sAnsibleMixin' object has no attribute 'namespace'
+
+# - name: Expose argo to outside world
+#   kubernetes.core.k8s_service:
+#     kubeconfig: "/home/tinoblue17/.kube/config"
+#     validate_certs: false
+#     state: present
+#     name: argcd-server-external-access
+#     namespace: argocd
+#     inline:
+#       spec:
+#         type: NodePort
+#         ports:
+#         - port: 8080
+#           protocol: TCP
+#           targetPort: 8080
+#         selector:
+#           app.kubernetes.io/name: argocd-server
+
+- name: Get nodeport argo
+  shell: kubectl -n argocd describe service  | grep -i Nodeport | tail -1 | awk '{print $3}' | awk -F / '{print $1}'
+  register: external_port_argo
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Get first node external IP
+  shell: kubectl get nodes -o wide --no-headers | awk '{print $7}' | head -1
+  register: external_ip_node
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Get argo admin secret password
+  shell: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+  register: argo
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Set argo admin secret
+  set_fact:
+    argo_secret: "{{ argo.stdout }}"
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Login to argocd cli
+  shell: argocd login {{ external_ip_node }}:{{ external_port_argo }} --core
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Sleep for 180 seconds until argo is completely up
+  wait_for:
+    timeout: 180
+
+- name: Add app of apps gitlab repository
+  shell: |
+    kubectl config set-context --current --namespace=argocd
+    argocd repo add {{ argocd_config_repo }} --type git
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Create app of apps
+  shell: >
+    argocd app create apps
+    --dest-namespace argocd
+    --dest-server https://kubernetes.default.svc
+    --repo {{ argocd_config_repo }}
+    --revision {{ k8s_argocd_branch }}
+    --path argo-apps
+    --sync-policy automated
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Sleep for 60 seconds until create apps is finished
+  wait_for:
+    timeout: 60
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Sync app of apps
+  shell: argocd app sync apps
+  when: inventory_hostname in groups['nodes'][0]
+
+- name: Show argocd login information
+  debug:
+    msg:
+    -  "user: admin"
+    -  "password: {{ argo.stdout }}"
+    - "url for connecting: https://{{ external_ip_node.stdout }}:{{ external_port_argo.stdout }}"
+  when: inventory_hostname in groups['nodes'][0]
