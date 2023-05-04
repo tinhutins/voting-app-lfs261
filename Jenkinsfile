@@ -13,9 +13,9 @@ pipeline {
   // here it is necessary to change tags after every app update
   environment {
 
-        TAG_VOTE   = '1.0.145' // MAJOR.MINOR.PATCH
-        TAG_RESULT = '1.0.145' // MAJOR.MINOR.PATCH
-        TAG_WORKER = '1.0.145' // MAJOR.MINOR.PATCH
+        TAG_VOTE   = '1.0.150' // MAJOR.MINOR.PATCH
+        TAG_RESULT = '1.0.150' // MAJOR.MINOR.PATCH
+        TAG_WORKER = '1.0.150' // MAJOR.MINOR.PATCH
 
     }
 

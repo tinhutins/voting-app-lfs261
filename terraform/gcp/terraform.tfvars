@@ -1,5 +1,5 @@
 # Project variables
-project     = "test-ci-cd-379808"
+project     = "voting-app-385705"
 region      = "europe-central2"
 zone        = "europe-central2-a"
 zone_backup = "europe-central2-b"
