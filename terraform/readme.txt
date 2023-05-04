@@ -15,4 +15,4 @@ gcloud connecting to gke :
 
 gcloud init
 gcloud auth application-default login
-gcloud container clusters get-credentials cratis-test-gke --zone europe-central2-a --project test-ci-cd-379808
+gcloud container clusters get-credentials cratis-test-gke --zone europe-central2-a --project voting-app-385705
