@@ -89,7 +89,7 @@ jobs:
 
       - name: Deploy vote app with ArgoCD
         run: |
-          git clone https://x-access-token:$PAT@github.com/tinhutins/argocd-vote-deploy.git
+          git clone https://tinhutins:$PAT@github.com/tinhutins/argocd-vote-deploy.git
           cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
           kustomize edit set image docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
           git config user.name "thutinski"
