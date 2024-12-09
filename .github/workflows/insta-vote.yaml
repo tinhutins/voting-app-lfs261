@@ -98,7 +98,7 @@ jobs:
         run: | 
           pwd
           ls -lah
-          cd argocd-vote-deploy
+          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
           git config user.name "thutinski"
           git config user.email "tino.hutinski@gmail.com"
           kustomize edit set image k8s-apps-deployment/k8s-spec-vote/docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
