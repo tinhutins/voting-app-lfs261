@@ -10,9 +10,9 @@ on:
       - '**/vote/**'
 
 env:
-  TAG_VOTE: "1.0.153" # MAJOR.MINOR.PATCH
-  TAG_RESULT: "1.0.153" # MAJOR.MINOR.PATCH
-  TAG_WORKER: "1.0.153" # MAJOR.MINOR.PATCH
+  TAG_VOTE: "1.0.155" # MAJOR.MINOR.PATCH
+  TAG_RESULT: "1.0.155" # MAJOR.MINOR.PATCH
+  TAG_WORKER: "1.0.155" # MAJOR.MINOR.PATCH
 
 jobs:
   checkout:
@@ -96,8 +96,6 @@ jobs:
 
       - name: Deploy vote app with ArgoCD
         run: | 
-          pwd
-          ls -lah
           cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
           git config user.name "thutinski"
           git config user.email "tino.hutinski@gmail.com"
@@ -105,18 +103,6 @@ jobs:
           git add .
           git commit -m "Deploy vote app with v${{ env.TAG_VOTE }}" || true
           git push || true
-
-      # - name: Deploy vote app with ArgoCD
-      #   run: |
-      #     git clone https://tinhutins:$PAT@github.com/tinhutins/argocd-vote-deploy.git
-      #     git config user.name "thutinski"
-      #     git config user.email "tino.hutinski@gmail.com"
-      #     echo pwd
-      #     cd argocd-vote-deploy
-      #     kustomize edit set image k8s-apps-deployment/k8s-spec-vote/docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
-      #     git add .
-      #     git commit -m "Deploy vote app with v${{ env.TAG_VOTE }}" || true
-      #     git push || true
 
       - name: Deploy result app with ArgoCD
         run: |
