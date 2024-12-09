@@ -86,17 +86,16 @@ jobs:
       # i don't use compose now in kubernetes
       # - name: Deploy Instavote app with Docker Compose (local dev)
       #   run: docker-compose up -d
-
       - name: Deploy vote app with ArgoCD
         run: |
           git clone https://tinhutins:$PAT@github.com/tinhutins/argocd-vote-deploy.git
-          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
-          kustomize edit set image docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
           git config user.name "thutinski"
           git config user.email "tino.hutinski@gmail.com"
+          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
+          kustomize edit set image docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
           git add .
-          git commit -m "Deploy vote app with v${{ env.TAG_VOTE }}"
-          git push
+          git commit -m "Deploy vote app with v${{ env.TAG_VOTE }}" || true
+          git push || true
 
       - name: Deploy result app with ArgoCD
         run: |
