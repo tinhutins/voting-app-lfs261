@@ -91,8 +91,9 @@ jobs:
           git clone https://tinhutins:$PAT@github.com/tinhutins/argocd-vote-deploy.git
           git config user.name "thutinski"
           git config user.email "tino.hutinski@gmail.com"
-          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
-          kustomize edit set image docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
+          echo pwd
+          cd argocd-vote-deploy
+          kustomize edit set image k8s-apps-deployment/k8s-spec-vote/docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
           git add .
           git commit -m "Deploy vote app with v${{ env.TAG_VOTE }}" || true
           git push || true
