@@ -1,0 +1,115 @@
+name: Instavote Mono Pipeline
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '**/worker/**'
+      - '**/result/**'
+      - '**/vote/**'
+
+env:
+  TAG_VOTE: "1.0.151" # MAJOR.MINOR.PATCH
+  TAG_RESULT: "1.0.151" # MAJOR.MINOR.PATCH
+  TAG_WORKER: "1.0.151" # MAJOR.MINOR.PATCH
+
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+  build-test-package:
+    needs: checkout
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [worker, result, vote]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Build and Test ${{ matrix.app }}
+        run: |
+          if [ "${{ matrix.app }}" == "worker" ]; then
+            docker run --rm -v $HOME/.m2:/root/.m2 -v ${{ github.workspace }}/worker:/app -w /app maven:3.6.1-jdk-8-slim mvn clean test
+          elif [ "${{ matrix.app }}" == "result" ]; then
+            docker run --rm -v ${{ github.workspace }}/result:/app -w /app node:16.13.1-alpine sh -c "npm install && npm test"
+          elif [ "${{ matrix.app }}" == "vote" ]; then
+            docker run --rm -v ${{ github.workspace }}/vote:/app -w /app python:2.7.16-slim sh -c "pip install -r requirements.txt && nosetests -v"
+          fi
+
+      - name: Package ${{ matrix.app }}
+        if: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          if [ "${{ matrix.app }}" == "worker" ]; then
+            docker run --rm -v $HOME/.m2:/root/.m2 -v ${{ github.workspace }}/worker:/app -w /app maven:3.6.1-jdk-8-slim mvn package -DskipTests
+          elif [ "${{ matrix.app }}" == "vote" ]; then
+            echo "Packaging not applicable for vote"
+          elif [ "${{ matrix.app }}" == "result" ]; then
+            echo "Packaging not applicable for result"
+          fi
+
+  docker-build-push:
+    needs: build-test-package
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [worker, result, vote]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Docker build and push ${{ matrix.app }}
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PASS: ${{ secrets.DOCKER_PASS }}
+        run: |
+          echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+          if [ "${{ matrix.app }}" == "worker" ]; then
+            docker build -t hutinskit/worker:v${{ env.TAG_WORKER }} ./worker
+            docker push hutinskit/worker:v${{ env.TAG_WORKER }}
+          elif [ "${{ matrix.app }}" == "result" ]; then
+            docker build -t hutinskit/result:v${{ env.TAG_RESULT }} ./result
+            docker push hutinskit/result:v${{ env.TAG_RESULT }}
+          elif [ "${{ matrix.app }}" == "vote" ]; then
+            docker build -t hutinskit/vote:v${{ env.TAG_VOTE }} ./vote
+            docker push hutinskit/vote:v${{ env.TAG_VOTE }}
+          fi
+
+  deploy:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+    steps:
+      # i don't use compose now in kubernetes
+      # - name: Deploy Instavote app with Docker Compose (local dev)
+      #   run: docker-compose up -d
+
+      - name: Deploy vote app with ArgoCD
+        run: |
+          git clone https://github.com/tinhutins/argocd-vote-deploy.git
+          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-vote
+          kustomize edit set image docker.io/hutinskit/vote:v${{ env.TAG_VOTE }}
+          git config user.name "thutinski"
+          git config user.email "tino.hutinski@gmail.com"
+          git add .
+          git commit -m "Deploy vote app with v${{ env.TAG_VOTE }}"
+          git push
+
+      - name: Deploy result app with ArgoCD
+        run: |
+          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-result
+          kustomize edit set image docker.io/hutinskit/result:v${{ env.TAG_RESULT }}
+          git add .
+          git commit -m "Deploy result app with v${{ env.TAG_RESULT }}"
+          git push
+
+      - name: Deploy worker app with ArgoCD
+        run: |
+          cd argocd-vote-deploy/k8s-apps-deployment/k8s-spec-worker
+          kustomize edit set image docker.io/hutinskit/worker:v${{ env.TAG_WORKER }}
+          git add .
+          git commit -m "Deploy worker app with v${{ env.TAG_WORKER }}"
+          git push
