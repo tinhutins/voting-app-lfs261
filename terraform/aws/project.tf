@@ -15,8 +15,6 @@ terraform {
   #   address        = "https://gitlab1.cratis.cc/api/v4/projects/94/terraform/state/aws-eks-iac"
   #   lock_address   = "https://gitlab1.cratis.cc/api/v4/projects/94/terraform/state/aws-eks-iac/lock"
   #   unlock_address = "https://gitlab1.cratis.cc/api/v4/projects/94/terraform/state/aws-eks-iac/lock"
-  #   username       = "thutinski"
-  #   password       = "glpat-Q-aeE4pmXDq1HG3nassA"
   #   lock_method    = "POST"
   #   unlock_method  = "DELETE"
   #   retry_wait_min = "5"
@@ -33,4 +31,5 @@ provider "aws" {
 data "aws_availability_zones" "available" {
   state = "available"
 }
+
 
